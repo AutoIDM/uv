@@ -1,0 +1,76 @@
+name: Test Windows Concurrent Cache Access (Historical Baseline - Pre-PR #11007)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - devin/1763584485-windows-cache-historical-baseline
+
+permissions:
+  contents: read
+
+jobs:
+  test-windows-concurrency:
+    name: Test concurrent cache access on Windows
+    runs-on: windows-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-test
+          
+      - name: Build uv (release mode)
+        run: cargo build --release --package uv
+        
+      - name: Verify uv binary
+        run: |
+          .\target\release\uv.exe --version
+        shell: pwsh
+        
+      - name: Run concurrent cache access test (HISTORICAL BASELINE - Pre-PR #11007)
+        id: test_historical_baseline
+        run: |
+          Write-Host "Running test on code from BEFORE PR #11007 (expected to fail with concurrent cache access errors)"
+          Write-Host "This is commit 321f8ccf45ac2f055e4483c3080c041f7f202e5f (parent of PR #11007)"
+          .\.github\scripts\test-concurrent-cache-access.ps1
+        shell: pwsh
+        continue-on-error: true
+        
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: |
+            ${{ runner.temp }}/uv-cache/
+            ${{ runner.temp }}/hello.py
+          if-no-files-found: ignore
+          
+      - name: Report results
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================" -ForegroundColor Cyan
+          Write-Host "Test Summary (Historical Baseline - Pre-PR #11007)" -ForegroundColor Cyan
+          Write-Host "========================================" -ForegroundColor Cyan
+          Write-Host "Testing code from commit 321f8ccf (BEFORE PR #11007 cache locking improvements)" -ForegroundColor Yellow
+          Write-Host ""
+          
+          if ("${{ steps.test_historical_baseline.outcome }}" -eq "success") {
+            Write-Host "✗ UNEXPECTED: Historical baseline test PASSED" -ForegroundColor Yellow
+            Write-Host "  The test was expected to fail with concurrent cache access errors" -ForegroundColor Yellow
+            Write-Host "  This may indicate the race condition is very intermittent" -ForegroundColor Yellow
+          } else {
+            Write-Host "✓ EXPECTED: Historical baseline test FAILED" -ForegroundColor Green
+            Write-Host "  This confirms the concurrent cache access issue existed before PR #11007" -ForegroundColor Green
+            Write-Host "  The failure proves the issue was real and needed the fix" -ForegroundColor Green
+          }
+        shell: pwsh
