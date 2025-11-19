@@ -1,0 +1,71 @@
+name: Test Windows Concurrent Cache Access (Baseline - Expected to Fail)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - devin/1763581209-windows-cache-baseline
+
+permissions:
+  contents: read
+
+jobs:
+  test-windows-concurrency:
+    name: Test concurrent cache access on Windows
+    runs-on: windows-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-test
+          
+      - name: Build uv (release mode)
+        run: cargo build --release --package uv
+        
+      - name: Verify uv binary
+        run: |
+          .\target\release\uv.exe --version
+        shell: pwsh
+        
+      - name: Run concurrent cache access test (BASELINE - no fix)
+        id: test_baseline
+        run: |
+          Write-Host "Running baseline test WITHOUT fix (expected to fail with concurrent cache access errors)"
+          .\.github\scripts\test-concurrent-cache-access.ps1 -JobCount 20
+        shell: pwsh
+        
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: |
+            ${{ runner.temp }}/uv-cache/
+            ${{ runner.temp }}/hello.py
+          if-no-files-found: ignore
+          
+      - name: Report results
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================" -ForegroundColor Cyan
+          Write-Host "Test Summary (Baseline - No Fix)" -ForegroundColor Cyan
+          Write-Host "========================================" -ForegroundColor Cyan
+          
+          if ("${{ steps.test_baseline.outcome }}" -eq "success") {
+            Write-Host "✗ UNEXPECTED: Baseline test PASSED" -ForegroundColor Yellow
+            Write-Host "  The test was expected to fail with concurrent cache access errors" -ForegroundColor Yellow
+            Write-Host "  This may indicate the race condition is intermittent" -ForegroundColor Yellow
+          } else {
+            Write-Host "✓ EXPECTED: Baseline test FAILED" -ForegroundColor Green
+            Write-Host "  This confirms the concurrent cache access issue exists on Windows" -ForegroundColor Green
+          }
+        shell: pwsh
