@@ -1,0 +1,80 @@
+name: Test Windows Concurrent Cache Access
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - devin/1763532096-fix-windows-concurrent-cache-access
+
+permissions:
+  contents: read
+
+jobs:
+  test-windows-concurrency:
+    name: Test concurrent cache access on Windows
+    runs-on: windows-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-test
+          
+      - name: Build uv (release mode)
+        run: cargo build --release --package uv
+        
+      - name: Verify uv binary
+        run: |
+          .\target\release\uv.exe --version
+        shell: pwsh
+        
+      - name: Run concurrent cache access test (WITHOUT fix - baseline)
+        id: test_without_fix
+        if: false  # Skip baseline test for now, we'll enable if needed
+        run: |
+          Write-Host "Running baseline test (this should fail on main branch)"
+          .\.github\scripts\test-concurrent-cache-access.ps1 -JobCount 20
+        shell: pwsh
+        continue-on-error: true
+        
+      - name: Run concurrent cache access test (WITH fix)
+        id: test_with_fix
+        run: |
+          Write-Host "Running test with the fix applied"
+          .\.github\scripts\test-concurrent-cache-access.ps1 -JobCount 20
+        shell: pwsh
+        
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: |
+            ${{ runner.temp }}/uv-cache/
+            ${{ runner.temp }}/hello.py
+          if-no-files-found: ignore
+          
+      - name: Report results
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================" -ForegroundColor Cyan
+          Write-Host "Test Summary" -ForegroundColor Cyan
+          Write-Host "========================================" -ForegroundColor Cyan
+          
+          if ("${{ steps.test_with_fix.outcome }}" -eq "success") {
+            Write-Host "✓ Concurrent cache access test PASSED" -ForegroundColor Green
+            Write-Host "  The fix successfully prevents concurrent cache access errors on Windows" -ForegroundColor Green
+          } else {
+            Write-Host "✗ Concurrent cache access test FAILED" -ForegroundColor Red
+            Write-Host "  The fix did not prevent concurrent cache access errors" -ForegroundColor Red
+            exit 1
+          }
+        shell: pwsh
