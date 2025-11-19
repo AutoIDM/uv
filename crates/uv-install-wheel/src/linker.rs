@@ -556,16 +556,16 @@ fn symlink_wheel_files(
 /// See: <https://github.com/astral-sh/uv/issues/11002>
 fn synchronized_copy(from: &Path, to: &Path, locks: &Locks) -> std::io::Result<()> {
     #[cfg(windows)]
-    let _src_dir_guard = {
-        let src_dir_lock = {
-            let mut locks_guard = locks.copy_dir_locks.lock().unwrap();
-            locks_guard
-                .entry(from.parent().unwrap().to_path_buf())
-                .or_insert_with(|| Arc::new(Mutex::new(())))
-                .clone()
-        };
-        src_dir_lock.lock().unwrap()
+    let src_dir_lock = {
+        let mut locks_guard = locks.copy_dir_locks.lock().unwrap();
+        locks_guard
+            .entry(from.parent().unwrap().to_path_buf())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
     };
+    
+    #[cfg(windows)]
+    let _src_dir_guard = src_dir_lock.lock().unwrap();
 
     // Ensure we have a lock for the destination directory.
     let dir_lock = {
