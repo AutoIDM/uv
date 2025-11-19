@@ -550,9 +550,24 @@ fn symlink_wheel_files(
 /// Copy from `from` to `to`, ensuring that the parent directory is locked. Avoids simultaneous
 /// writes to the same file, which can lead to corruption.
 ///
+/// On Windows, we also lock the source directory to prevent concurrent reads while another
+///
 /// See: <https://github.com/astral-sh/uv/issues/4831>
+/// See: <https://github.com/astral-sh/uv/issues/11002>
 fn synchronized_copy(from: &Path, to: &Path, locks: &Locks) -> std::io::Result<()> {
-    // Ensure we have a lock for the directory.
+    #[cfg(windows)]
+    let _src_dir_guard = {
+        let src_dir_lock = {
+            let mut locks_guard = locks.copy_dir_locks.lock().unwrap();
+            locks_guard
+                .entry(from.parent().unwrap().to_path_buf())
+                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .clone()
+        };
+        src_dir_lock.lock().unwrap()
+    };
+
+    // Ensure we have a lock for the destination directory.
     let dir_lock = {
         let mut locks_guard = locks.copy_dir_locks.lock().unwrap();
         locks_guard
@@ -561,7 +576,7 @@ fn synchronized_copy(from: &Path, to: &Path, locks: &Locks) -> std::io::Result<(
             .clone()
     };
 
-    // Acquire a lock on the directory.
+    // Acquire a lock on the destination directory.
     let _dir_guard = dir_lock.lock().unwrap();
 
     // Copy the file, which will also set its permissions.
